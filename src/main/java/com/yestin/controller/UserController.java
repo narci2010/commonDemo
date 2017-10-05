@@ -5,7 +5,13 @@ package com.yestin.controller;
  */
 
 import com.google.common.eventbus.AsyncEventBus;
+import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.dsl.Disruptor;
 import com.yestin.async.Task;
+import com.yestin.disruptor.LongEvent;
+import com.yestin.disruptor.LongEventFactory;
+import com.yestin.disruptor.LongEventHandler;
+import com.yestin.disruptor.LongEventProducer;
 import com.yestin.domain.User;
 import com.yestin.domain.UserRepository;
 import com.yestin.eventbus.HelloEventListener;
@@ -13,10 +19,15 @@ import com.yestin.eventbus.OrderEvent;
 import com.yestin.redis.MyRedisTemplate;
 import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.Reactor;
+import reactor.event.Event;
 
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
@@ -35,6 +46,13 @@ public class UserController {
     private UserRepository userRepository;
     @Autowired
     private Task task;
+
+    @Autowired
+    @Qualifier("reportReactor")
+    private Reactor rx;
+
+
+
     @RequestMapping("/testJedisCluster")
     @ResponseBody
     public String testJedisCluster() {
@@ -47,12 +65,63 @@ public class UserController {
     public String testevent() {
         AsyncEventBus eventBus = new AsyncEventBus(Executors.newFixedThreadPool(3));
         eventBus.register(new HelloEventListener());
-        for (int i = 0; i < 10000; i++) {
+        for (int i = 0; i < 500; i++) {
             eventBus.post(new OrderEvent(String.valueOf(i)));
+            System.out.println("****"+i);
+        }
+//        eventBus.post(new OrderEvent(String.valueOf(1)));
+        return "sss";
+    }
+    @RequestMapping("/testdisruptor")
+    @ResponseBody
+    public String testdisruptor() {
+        // Executor that will be used to construct new threads for consumers
+        Executor executor = Executors.newCachedThreadPool();
+        // The factory for the event
+        LongEventFactory factory = new LongEventFactory();
+        // Specify the size of the ring buffer, must be power of 2.
+        int bufferSize = 1024;
+        // Construct the Disruptor
+        Disruptor<LongEvent> disruptor = new Disruptor(factory, bufferSize,
+                Executors.defaultThreadFactory());
+
+
+
+        // Connect the handler
+        disruptor.handleEventsWith(new LongEventHandler());
+        // Start the Disruptor, starts all threads running
+        disruptor.start();
+        // Get the ring buffer from the Disruptor to be used for publishing.
+        RingBuffer<LongEvent> ringBuffer = disruptor.getRingBuffer();
+
+        LongEventProducer producer = new LongEventProducer(ringBuffer);
+
+
+        for (int i = 0; i < 500; i++) {
+            producer.onData(i);
             System.out.println("****"+i);
         }
         return "sss";
     }
+    @RequestMapping("/testdisruptorfz")
+    @ResponseBody
+    public String testdisruptorfz() {
+
+        return "sss";
+    }
+
+
+
+
+    @RequestMapping("/testreactor")
+    @ResponseBody
+    public void testreactor() {
+        for (int i = 0; i < 500; i++) {
+            rx.notify("step1", Event.wrap("好"+i));
+            System.out.println("****"+i);
+        }
+    }
+
     @RequestMapping("/testrabbit")
     @ResponseBody
     public String testrabbit() {
